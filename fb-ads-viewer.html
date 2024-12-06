@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facebook Ads Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .error {
+            color: #dc3545;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background-color: #f8d7da;
+        }
+
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .loading {
+            background-color: #e2e6ea;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #0052a3;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Facebook Ads Viewer</h1>
+
+        <div class="input-group">
+            <label for="accountId">Ad Account ID (format: act_XXXXXXXXXX):</label>
+            <input type="text" id="accountId" placeholder="act_XXXXXXXXXX" value="act_10155604501298500" />
+
+            <label for="accessToken">Access Token:</label>
+            <input type="text" id="accessToken" placeholder="Enter your access token" value="EAAAAIihBeGoBO3wRDjjcRuj3sRM9ZARX25PBo3s3jZB7bgpw9RmVP420Dt78utTqglrGMWd1ZBZAKOYEsPrYH2V9pDgReYngALoxNLPZB049lZCjykMnA9d3uhpqi6TGnlsJcTZCOXR7ZA6MDQOH1WGNw8xgMaUmEDJLgYSWkbTCDtlWvufmAChw" />
+        </div>
+
+        <button id="fetchButton" onclick="fetchAds()">Fetch Latest Ads</button>
+        <div id="status" class="status"></div>
+        <div id="error" class="error" style="display: none;"></div>
+        <table id="adsTable" style="display: none;">
+            <thead>
+                <tr>
+                    <th>Ad ID</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Updated</th>
+                    <th>Campaign</th>
+                    <th>Adset</th>
+                </tr>
+            </thead>
+            <tbody id="adsTableBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        async function fetchAds() {
+            const button = document.getElementById('fetchButton');
+            const status = document.getElementById('status');
+            const error = document.getElementById('error');
+            const table = document.getElementById('adsTable');
+            const accountId = document.getElementById('accountId').value;
+            const accessToken = document.getElementById('accessToken').value;
+
+            // Basic validation
+            if (!accountId || !accessToken) {
+                error.textContent = 'Please enter both Ad Account ID and Access Token';
+                error.style.display = 'block';
+                return;
+            }
+
+            // if (!accountId.startsWith('act_')) {
+            //     error.textContent = 'Ad Account ID should start with "act_"';
+            //     error.style.display = 'block';
+            //     return;
+            // }
+
+            button.disabled = true;
+            status.className = 'status loading';
+            status.textContent = 'Fetching ads...';
+            error.style.display = 'none';
+            table.style.display = 'none';
+
+            try {
+                const response = await fetch(
+                    `https://graph.facebook.com/v18.0/${accountId}/ads/insights` +
+                    `?fields=id,name,status,effective_status,bid_amount,created_time,updated_time,` +
+                    `campaign{name},` +
+                    `adset{name},` +
+                    `preview_shareable_link,` +
+                    `targeting,` +
+                    `creative{body,title,image_url},` +
+                    `insights{impressions,clicks,spend,reach,cpc,cpm,ctr}` +
+                    `&date_preset=last_30d` +
+                    `&limit=10` +
+                    `&access_token=${accessToken}`
+                );
+
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error.message || 'Unknown API error');
+                }
+
+                const fields = [
+                    { id: 'id', name: 'Ad ID' },
+                    { id: 'name', name: 'Name' },
+                    { id: 'status', name: 'Status' },
+                    { id: 'effective_status', name: 'Effective Status' },
+                    { id: 'bid_amount', name: 'Bid Amount' },
+                    { id: 'created_time', name: 'Created', format: 'date' },
+                    { id: 'updated_time', name: 'Updated', format: 'date' },
+                    { id: 'campaign.name', name: 'Campaign' },
+                    { id: 'adset.name', name: 'Adset' },
+                    { id: 'preview_shareable_link', name: 'Preview Link', format: 'link' },
+                    { id: 'targeting', name: 'Targeting', format: 'json' },
+                    { id: 'creative.body', name: 'Ad Text' },
+                    { id: 'creative.title', name: 'Ad Title' },
+                    { id: 'creative.image_url', name: 'Image', format: 'image' },
+                    { id: 'insights.impressions', name: 'Impressions' },
+                    { id: 'insights.clicks', name: 'Clicks' },
+                    { id: 'insights.spend', name: 'Spend' },
+                    { id: 'insights.reach', name: 'Reach' },
+                    { id: 'insights.cpc', name: 'CPC' },
+                    { id: 'insights.cpm', name: 'CPM' },
+                    { id: 'insights.ctr', name: 'CTR' }
+                ];
+
+                displayAds(data.data, fields);
+                status.className = 'status';
+                status.textContent = `Successfully fetched ${data.data.length} ads`;
+                table.style.display = 'table';
+            } catch (err) {
+                error.textContent = `Error: ${err.message}`;
+                error.style.display = 'block';
+                status.className = 'status';
+                status.textContent = '';
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        function displayAds(ads, fields) {
+            // Update table headers
+            const thead = document.querySelector('#adsTable thead tr');
+            thead.innerHTML = fields.map(field => 
+                `<th>${field.name}</th>`
+            ).join('');
+
+            // Update table body
+            const tbody = document.getElementById('adsTableBody');
+            tbody.innerHTML = '';
+
+            ads.forEach(ad => {
+                const row = document.createElement('tr');
+                row.innerHTML = fields.map(field => {
+                    const value = getNestedValue(ad, field.id);
+                    return `<td>${formatValue(value, field.format)}</td>`;
+                }).join('');
+                tbody.appendChild(row);
+            });
+        }
+
+        function getNestedValue(obj, path) {
+            return path.split('.').reduce((current, key) => 
+                current ? current[key] : undefined, obj);
+        }
+
+        function formatValue(value, format) {
+            if (value === undefined || value === null) return 'N/A';
+            
+            switch (format) {
+                case 'date':
+                    return moment(value).format('YYYY-MM-DD HH:mm');
+                case 'link':
+                    return `<a href="${value}" target="_blank">View</a>`;
+                case 'image':
+                    return `<img src="${value}" alt="Ad Image" style="max-height: 50px;">`;
+                case 'json':
+                    return `<pre style="max-height: 100px; overflow-y: auto">${JSON.stringify(value, null, 2)}</pre>`;
+                default:
+                    return escapeHtml(String(value));
+            }
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meta Insights Tool</title>
+    <style>
+        .results {
+            margin: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .controls input[type="number"] {
+            padding: 5px;
+        }
+        .ad-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            display: flex;
+            gap: 20px;
+        }
+        .ad-info {
+            flex: 1;
+        }
+        .ad-image {
+            flex: 0 0 200px;
+            display: flex;
+            align-items: center;
+        }
+        .ad-image img {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+        }
+        .platform-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .platform-breakdown {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .filter-controls {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+        }
+        .filter-controls select {
+            padding: 5px;
+            min-width: 200px;
+        }
+        .status-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+        }
+
+        .status-table th,
+        .status-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .status-table th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+        }
+
+        .status-table .total-row {
+            background-color: #f8f8f8;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .status-table tr:hover {
+            background-color: #f9f9f9;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            margin-left: 10px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            vertical-align: middle;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Meta Insights Tool</h1>
+    
+    <div class="controls">
+        <select id="timeRange">
+            <option value="today">Last day</option>
+            <option value="last_30d">Last 30 days</option>
+            <option value="last_90d">Last 90 days</option>
+            <option value="last_quarter">Last quarter</option>
+            <option value="last_year">Last year</option>
+            <option value="maximum">Maximum available</option>
+        </select>
+        <input type="number" id="adLimit" value="25" min="1" max="250" style="width: 80px;" placeholder="# ads">
+        <select id="fetchMethod" onchange="toggleAdLimit()">
+            <option value="aggregate">Aggregate Summary</option>
+            <option value="individual">Individual Ads (with previews)</option>
+        </select>
+        <button onclick="fetchInsights()">Fetch Insights</button>
+        <span class="spinner" id="loadingSpinner"></span>
+    </div>
+    <div id="results" class="results"></div>
+
+    <script>
+        // Global constants
+        const ACCESS_TOKEN = 'EAAAAIihBeGoBOZB3sLjwI6Ta5i0OotmXsTS41OcEfxShSY9GcCMi3EyqhlNPWUVi37YQoyC3QJLyT7NAzE0u3Kfis6Vafj2RvIkP9xm33VsmOiN8zcNjRTe8uyTR9ZAPAEZAR0QEyG38K1WcsVBZAtOoibTZB9mJIJECiU1j26DjuPh4PmDcdmEvAIX2m0BDMvvn2hJK6KLbNDeR6drse1LJvwQZDZD';
+        const AD_ACCOUNT_ID = 'act_10155604501298500';
+        const API_VERSION = 'v21.0';
+
+        // Configuration object for fields we want to fetch
+        const insightsFields = {
+            basic: ['impressions', 'clicks', 'spend', 'reach'],
+            actions: ['actions', 'cost_per_action_type'],
+            performance: ['ctr', 'cpc', 'cpm'],
+            engagement: ['unique_clicks', 'unique_ctr', 'frequency']
+        };
+
+        // Flatten fields array for API request
+        const getAllFields = () => {
+            return Object.values(insightsFields).flat().join(',');
+        };
+
+        async function fetchInsights() {
+            const timeRange = document.getElementById('timeRange').value;
+            const limit = document.getElementById('adLimit').value;
+            const fetchMethod = document.getElementById('fetchMethod').value;
+
+            try {
+                if (fetchMethod === 'aggregate') {
+                    await fetchAggregateInsights(timeRange);
+                } else {
+                    await fetchIndividualAds(timeRange, limit);
+                }
+            } catch (error) {
+                document.getElementById('results').innerHTML = `
+                    <div class="error">Error: ${error.message}</div>
+                `;
+            }
+        }
+
+        async function fetchAggregateInsights(timeRange) {
+            const insightsUrl = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/ads`;
+            const params = new URLSearchParams({
+                access_token: ACCESS_TOKEN,
+                date_preset: timeRange,
+                fields: 'effective_status',
+                limit: '5000',
+                summary: 'true'
+            });
+
+            const response = await fetch(`${insightsUrl}?${params}`);
+            const data = await response.json();
+
+            if (data.error) throw new Error(data.error.message);
+
+            const statusCounts = data.data.reduce((acc, ad) => {
+                const status = ad.effective_status;
+                acc[status] = (acc[status] || 0) + 1;
+                return acc;
+            }, {});
+            
+            const totalAds = Object.values(statusCounts).reduce((sum, count) => sum + count, 0);
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `
+                <div class="status-summary">
+                    <h3>Ad Status Summary (Aggregate API)</h3>
+                    <table class="status-table">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Count</th>
+                                <th>Percentage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="total-row">
+                                <td><strong>TOTAL</strong></td>
+                                <td><strong>${totalAds}</strong></td>
+                                <td><strong>100%</strong></td>
+                            </tr>
+                            ${Object.entries(statusCounts).map(([status, count]) => `
+                                <tr>
+                                    <td>${status}</td>
+                                    <td>${count}</td>
+                                    <td>${((count/totalAds) * 100).toFixed(1)}%</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        async function fetchIndividualAds(timeRange, limit) {
+            // Convert timeRange to readable format
+            const timeRangeMap = {
+                'last_1d': 'Last 24 hours',
+                'last_30d': 'Last 30 days',
+                'last_90d': 'Last 90 days',
+                'last_quarter': 'Last quarter',
+                'last_year': 'Last year',
+                'maximum': 'Maximum available'
+            };
+            const readableTimeRange = timeRangeMap[timeRange] || timeRange;
+
+            const adsUrl = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/ads`;
+            const adsParams = new URLSearchParams({
+                fields: 'id,name,effective_status,creative{id,name,object_story_spec{link_data{message,description,call_to_action}},thumbnail_url,image_url,asset_feed_spec{images}}',
+                access_token: ACCESS_TOKEN,
+                date_preset: timeRange,
+                limit: limit
+            });
+
+            const adsResponse = await fetch(`${adsUrl}?${adsParams}`);
+            const adsData = await adsResponse.json();
+            
+            if (adsData.error) throw new Error(adsData.error.message);
+
+            // Add timeRange to the data object so renderResults can access it
+            adsData.timeRange = readableTimeRange;
+            renderResults(adsData, null);
+        }
+
+        function renderResults(adsData, insightsData) {
+            const resultsDiv = document.getElementById('results');
+            let html = '<h2>Results:</h2>';
+
+            // Add status summary section
+            if (adsData.data?.length > 0) {
+                html += `<h3>Ad Status Summary (${adsData.timeRange})</h3>`;
+                
+                // Count different status types
+                const statusCounts = adsData.data.reduce((acc, ad) => {
+                    const status = ad.effective_status;
+                    acc[status] = (acc[status] || 0) + 1;
+                    return acc;
+                }, {});
+
+                // Calculate percentages and add status summary
+                const totalAds = adsData.data.length;
+                html += '<div class="status-summary">';
+                for (const [status, count] of Object.entries(statusCounts)) {
+                    const percentage = ((count / totalAds) * 100).toFixed(1);
+                    html += `<p><strong>${status}:</strong> ${count} ads (${percentage}%)</p>`;
+                }
+                html += '</div>';
+
+                // Add status filter dropdown AFTER the summary
+                html += `
+                    <div class="filter-controls">
+                        <label for="statusFilter">Filter by status: </label>
+                        <select id="statusFilter" onchange="filterAdsByStatus()">
+                            <option value="ALL">All Statuses</option>
+                            ${Object.keys(statusCounts).map(status => 
+                                `<option value="${status}">${status}</option>`
+                            ).join('')}
+                        </select>
+                        <span>Showing <span id="filteredCount">${adsData.data.length}</span> ads</span>
+                    </div>
+                `;
+
+                // Add detailed ad information
+                html += '<div class="ad-details">';
+                adsData.data.forEach(ad => {
+                    html += `
+                        <div class="ad-card" data-status="${ad.effective_status}">
+                            <div class="ad-info">
+                                <h4>${ad.name}</h4>
+                                <p><strong>Ad ID:</strong> <span onclick="copyToClipboard('${ad.id}')" style="cursor: pointer; color: blue; text-decoration: underline;">${ad.id}</span></p>
+                                <p><strong>Status:</strong> ${ad.effective_status}</p>
+                                <p><strong>Time Range:</strong> ${adsData.timeRange}</p>
+                                ${ad.creative ? `
+                                    <div class="ad-content">
+                                        <h5>Ad Text:</h5>
+                                        ${ad.creative.object_story_spec?.link_data?.message ? 
+                                            `<p><strong>Primary Text:</strong> ${ad.creative.object_story_spec.link_data.message}</p>` : ''}
+                                        ${ad.creative.object_story_spec?.link_data?.name ? 
+                                            `<p><strong>Headline:</strong> ${ad.creative.object_story_spec.link_data.name}</p>` : ''}
+                                        ${ad.creative.object_story_spec?.link_data?.description ? 
+                                            `<p><strong>Description:</strong> ${ad.creative.object_story_spec.link_data.description}</p>` : ''}
+                                        ${ad.creative.object_story_spec?.link_data?.call_to_action?.type ? 
+                                            `<p><strong>Call to Action:</strong> ${ad.creative.object_story_spec.link_data.call_to_action.type}</p>` : ''}
+                                    </div>
+                                ` : ''}
+                            </div>
+                            ${ad.creative ? `
+                                <div class="ad-image">
+                                    <img src="${ad.creative.image_url || 
+                                           ad.creative.asset_feed_spec?.images?.[0]?.url || 
+                                           ad.creative.thumbnail_url}" 
+                                         alt="Ad Preview"
+                                         onerror="this.onerror=null; this.src='${ad.creative.thumbnail_url}';">
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            resultsDiv.innerHTML = html;
+        }
+
+        // Add this helper function for copying
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Ad ID copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
+        }
+
+        // Make sure the filter function is properly defined
+        function filterAdsByStatus() {
+            const selectedStatus = document.getElementById('statusFilter').value;
+            const adCards = document.querySelectorAll('.ad-card');
+            let visibleCount = 0;
+
+            adCards.forEach(card => {
+                if (selectedStatus === 'ALL' || card.dataset.status === selectedStatus) {
+                    card.style.display = 'flex';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+
+            document.getElementById('filteredCount').textContent = visibleCount;
+        }
+
+        // Add this new function
+        function toggleAdLimit() {
+            const fetchMethod = document.getElementById('fetchMethod').value;
+            const adLimitInput = document.getElementById('adLimit');
+            adLimitInput.style.display = fetchMethod === 'aggregate' ? 'none' : 'inline-block';
+        }
+
+        // Call it once on page load to set initial state
+        document.addEventListener('DOMContentLoaded', toggleAdLimit);
+    </script>
+</body>
+</html>
