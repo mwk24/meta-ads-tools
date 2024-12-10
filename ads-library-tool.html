@@ -50,7 +50,7 @@
 
   <pre id="results-body"></pre>
   <script>
-    const ACCESS_TOKEN = 'EAAAAIihBeGoBOZCHxIr4PqegDKhQeiXOzJpQbWH2gS8GDWrIioGeg8THMXYfCeZAbFT1huD1DLGdk5EYMpOsZCNNtWCFEtZBuvvVZChb0daQFQHCRPpfaDbUCdfaHBZBk4ldZBIEBZCTsHEY5ZCwgrPcWR0VQFDXXF3xDkLBSmZCyp63pBqoUJwUkFfQWsAF4AG6rfuGxfukvj3QUBP2zAp08FDWKEKvRLu8ahzCZCaZBAZDZD';
+    const ACCESS_TOKEN = 'EAAAAIihBeGoBO5e5jdnDemgiDPIPayGrIzdAQOJJhJYON0QUshEIUZBWMtqe70HeGTjZAAPcZA27wQJvXRPXNXBIHpOxSuN4Me42MpHbnolJty7mvuO1fyI457VGaeuO1OPdzZCUznBGExMCzO725YmuP4pOU7ONqyI56tYe0QixnHkDc6wWyGJVRKqrmZBfNVnUQ';
 
     function downloadCSV() {
       const resultsBody = document.getElementById('results-body');
@@ -109,6 +109,14 @@
         // We might already have a query URL if we're fetching the next batch
         const response = await fetch(query || fullQuery);
         const data = await response.json();
+        
+        // Add error handling for API response
+        if (data.error) {
+            const errorMessage = data.error.message || 'Unknown error';
+            const userMessage = data.error.error_user_msg || '';
+            throw new Error(`API Error: ${errorMessage}\nDetail: ${userMessage}`);
+        }
+
         console.log(data);
 
         window.nextBatchUrl = data.paging.next;
@@ -162,8 +170,8 @@
         document.getElementById('debug-area').textContent = JSON.stringify(data, null, 2);
       } catch (error) {
         console.error('Error querying the Facebook Ads API:', error);
-        //alert('Error querying the Facebook Ads API. Please check your credentials and try again.');
-        document.getElementById('debug-area').textContent = 'Error: ' + JSON.stringify(error, null, 2);
+        document.getElementById('debug-area').textContent = 'Error: ' + error.message;
+        document.getElementById('results-body').innerHTML = 'Error occurred. Check debug area below.';
       }
     }
   </script>
