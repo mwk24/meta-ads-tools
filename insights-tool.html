@@ -108,50 +108,205 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        /* Add auth styles */
+        .auth-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px;
+            text-align: center;
+            margin: 40px auto;
+            max-width: 600px;
+            padding: 40px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .auth-container h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .auth-container p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        #loginButton {
+            background: #1877f2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        #loginButton:hover {
+            background: #166fe5;
+        }
+
+        #mainContent {
+            display: none;
+        }
+
+        .auth-status {
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .auth-status.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
+
+        .auth-status.error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
     </style>
 </head>
 <body>
+    <!-- Add Facebook SDK -->
+    <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
+
     <h1>Meta Insights Tool</h1>
-    
-    <div class="controls">
-        <select id="timeRange">
-            <option value="today">Last day</option>
-            <option value="last_30d">Last 30 days</option>
-            <option value="last_90d">Last 90 days</option>
-            <option value="last_quarter">Last quarter</option>
-            <option value="last_year">Last year</option>
-            <option value="maximum">Maximum available</option>
-        </select>
-        <input type="number" id="adLimit" value="25" min="1" max="250" style="width: 80px;" placeholder="# ads">
-        <select id="fetchMethod" onchange="toggleAdLimit()">
-            <option value="aggregate">Aggregate Summary</option>
-            <option value="individual">Individual Ads (with previews)</option>
-        </select>
-        <button onclick="fetchInsights()">Fetch Insights</button>
-        <span class="spinner" id="loadingSpinner"></span>
+
+    <!-- Auth Container -->
+    <div id="authContainer" class="auth-container">
+        <h2>Welcome to Meta Insights Tool</h2>
+        <p>Please log in with Facebook to access your ad insights</p>
+        <div id="authStatus" class="auth-status"></div>
+        <button id="loginButton" onclick="handleLogin()">Login with Facebook</button>
     </div>
-    <div id="results" class="results"></div>
+
+    <!-- Main Content (initially hidden) -->
+    <div id="mainContent">
+        <!-- Move existing controls and results here -->
+        <div class="controls">
+            <select id="timeRange">
+                <option value="today">Last day</option>
+                <option value="last_30d">Last 30 days</option>
+                <option value="last_90d">Last 90 days</option>
+                <option value="last_quarter">Last quarter</option>
+                <option value="last_year">Last year</option>
+                <option value="maximum">Maximum available</option>
+            </select>
+            <input type="number" id="adLimit" value="25" min="1" max="250" style="width: 80px;" placeholder="# ads">
+            <select id="fetchMethod" onchange="toggleAdLimit()">
+                <option value="aggregate">Aggregate Summary</option>
+                <option value="individual">Individual Ads (with previews)</option>
+            </select>
+            <button onclick="fetchInsights()">Fetch Insights</button>
+            <span class="spinner" id="loadingSpinner"></span>
+        </div>
+        <div id="results" class="results"></div>
+    </div>
 
     <script>
-        // Global constants
-        const ACCESS_TOKEN = 'EAAAAIihBeGoBO5e5jdnDemgiDPIPayGrIzdAQOJJhJYON0QUshEIUZBWMtqe70HeGTjZAAPcZA27wQJvXRPXNXBIHpOxSuN4Me42MpHbnolJty7mvuO1fyI457VGaeuO1OPdzZCUznBGExMCzO725YmuP4pOU7ONqyI56tYe0QixnHkDc6wWyGJVRKqrmZBfNVnUQ';
+        // const ACCESS_TOKEN = '...';  // This will now be obtained from FB Login
         const AD_ACCOUNT_ID = 'act_10155604501298500';
         const API_VERSION = 'v21.0';
 
-        // Configuration object for fields we want to fetch
-        const insightsFields = {
-            basic: ['impressions', 'clicks', 'spend', 'reach'],
-            actions: ['actions', 'cost_per_action_type'],
-            performance: ['ctr', 'cpc', 'cpm'],
-            engagement: ['unique_clicks', 'unique_ctr', 'frequency']
+        // Auth Configuration
+        const FB_CONFIG = {
+            appId: '146704267370', 
+            version: API_VERSION,
+            scope: 'ads_read,ads_management'
         };
 
-        // Flatten fields array for API request
-        const getAllFields = () => {
-            return Object.values(insightsFields).flat().join(',');
+        // Auth State Management
+        let authState = {
+            isAuthenticated: false,
+            accessToken: null,
+            userId: null
         };
 
+        // Initialize Facebook SDK
+        window.fbAsyncInit = function() {
+            FB.init({
+                appId: FB_CONFIG.appId,
+                cookie: true,
+                xfbml: true,
+                version: FB_CONFIG.version
+            });
+
+            checkAuthStatus();
+        };
+
+        // Auth Functions
+        async function checkAuthStatus() {
+            try {
+                const response = await new Promise(resolve => FB.getLoginStatus(resolve));
+                handleAuthResponse(response);
+            } catch (error) {
+                showAuthError('Failed to check login status');
+            }
+        }
+
+        async function handleLogin() {
+            try {
+                const response = await new Promise(resolve => 
+                    FB.login(resolve, { scope: FB_CONFIG.scope })
+                );
+                handleAuthResponse(response);
+            } catch (error) {
+                showAuthError('Login failed');
+            }
+        }
+
+        function handleAuthResponse(response) {
+            if (response.status === 'connected') {
+                authState.isAuthenticated = true;
+                authState.accessToken = response.authResponse.accessToken;
+                authState.userId = response.authResponse.userID;
+                
+                showAuthSuccess();
+                showMainContent();
+            } else {
+                authState.isAuthenticated = false;
+                hideMainContent();
+            }
+        }
+
+        // UI Helpers
+        function showAuthSuccess() {
+            const status = document.getElementById('authStatus');
+            status.className = 'auth-status success';
+            status.textContent = 'Successfully authenticated!';
+        }
+
+        function showAuthError(message) {
+            const status = document.getElementById('authStatus');
+            status.className = 'auth-status error';
+            status.textContent = message;
+        }
+
+        function showMainContent() {
+            document.getElementById('authContainer').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'block';
+        }
+
+        function hideMainContent() {
+            document.getElementById('authContainer').style.display = 'block';
+            document.getElementById('mainContent').style.display = 'none';
+        }
+
+        // Update existing functions to use the current access token
         async function fetchInsights() {
+            if (!authState.isAuthenticated) {
+                showAuthError('Please login first');
+                return;
+            }
+
             const timeRange = document.getElementById('timeRange').value;
             const limit = document.getElementById('adLimit').value;
             const fetchMethod = document.getElementById('fetchMethod').value;
@@ -169,10 +324,11 @@
             }
         }
 
+        // Update API calls to use current access token
         async function fetchAggregateInsights(timeRange) {
             const insightsUrl = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/ads`;
             const params = new URLSearchParams({
-                access_token: ACCESS_TOKEN,
+                access_token: authState.accessToken,
                 date_preset: timeRange,
                 fields: 'effective_status',
                 limit: '5000',
@@ -238,7 +394,7 @@
             const adsUrl = `https://graph.facebook.com/${API_VERSION}/${AD_ACCOUNT_ID}/ads`;
             const adsParams = new URLSearchParams({
                 fields: 'id,name,effective_status,creative{id,name,object_story_spec{link_data{message,description,call_to_action}},thumbnail_url,image_url,asset_feed_spec{images}}',
-                access_token: ACCESS_TOKEN,
+                access_token: authState.accessToken,
                 date_preset: timeRange,
                 limit: limit
             });
